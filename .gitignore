@@ -30,6 +30,7 @@ dist/
 extractor/bin/
 extractor/obj/
 extractor/FodyWeavers.xsd
+extractor/publish/
 
 # IDE / editor
 .idea/
