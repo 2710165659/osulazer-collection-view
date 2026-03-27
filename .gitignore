@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local runtime data
+runtime/
+client.realm
+*.xlsx
+*.log
+
+# Build outputs
+build/
+dist/
+*.tmp
+*.temp
+
+# C# / .NET
+extractor/bin/
+extractor/obj/
+extractor/FodyWeavers.xsd
+
+# IDE / editor
+.idea/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS files
+Thumbs.db
+Desktop.ini
