@@ -9,28 +9,18 @@
     "core:default",
     "opener:default",
     "dialog:default",
+    "shell:allow-open",
     {
       "identifier": "shell:allow-execute",
       "allow": [
         {
-          "name": "CollectionRealmExtractor",
-          "sidecar": true,
-          "args": true
-        }
-      ]
-    },
-    "shell:allow-open",
-    "fs:default",
-    "shell:allow-execute",
-    {
-      "identifier": "shell:allow-spawn",
-      "allow": [
-        {
-          "sidecar": true,
           "name": "../../extractor/extractor",
+          "sidecar": true,
           "args": true 
         }
       ]
-    }
+    },
+    "fs:default",
+    "fs:allow-app-read-recursive"
   ]
 }

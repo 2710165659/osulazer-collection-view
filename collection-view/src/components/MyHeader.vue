@@ -41,7 +41,6 @@ const loadDatabase = async () => {
     const outputPath = await join(appDir, 'collections.json');
 
     // 2. 调用 Sidecar
-    // Command.sidecar 参数对应 tauri.conf.json 中 externalBin 的路径
     const command = Command.sidecar('../../extractor/extractor', [dbPath.value, outputPath]);
     const result = await command.execute();
 
