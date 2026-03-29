@@ -6,7 +6,6 @@ Set-Location $projectRoot
 
 $appName = "osulazer-collection-view"
 $buildRoot = Join-Path $projectRoot "build"
-$extractorOut = Join-Path $buildRoot "extractor_runtime"
 $pyinstallerWork = Join-Path $buildRoot "pyinstaller"
 $distRoot = Join-Path $projectRoot "dist"
 $distApp = Join-Path $distRoot $appName
@@ -15,17 +14,15 @@ $legacyDistApp = Join-Path $distRoot "collection-view"
 Write-Host "Installing Python dependencies..."
 python -m pip install -r requirements.txt pyinstaller
 
-Write-Host "Publishing self-contained C# extractor..."
-if (Test-Path $extractorOut) {
-    Remove-Item $extractorOut -Recurse -Force
+Write-Host "Checking bundled extractor runtime..."
+$extractorExe = Join-Path $projectRoot "extractor\\extractor.exe"
+$extractorDll = Join-Path $projectRoot "extractor\\realm-wrappers.dll"
+if (-not (Test-Path $extractorExe)) {
+    throw "Missing extractor\\extractor.exe"
 }
-dotnet publish extractor\CollectionRealmExtractor.csproj `
-    -c Release `
-    -r win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=false `
-    -p:PublishTrimmed=false `
-    -o $extractorOut
+if (-not (Test-Path $extractorDll)) {
+    throw "Missing extractor\\realm-wrappers.dll"
+}
 
 Write-Host "Cleaning old packaged app..."
 if (Test-Path $distApp) {
@@ -55,5 +52,6 @@ Write-Host "Build completed:" -ForegroundColor Green
 Write-Host "  $distApp"
 Write-Host ""
 Write-Host "Usage:"
-Write-Host "  1. Put client.realm next to $appName.exe"
-Write-Host "  2. Double-click $appName.exe"
+Write-Host "  1. Double-click $appName.exe"
+Write-Host "  2. Click '浏览 Realm' and choose a .realm file"
+Write-Host "  3. Click '加载'"

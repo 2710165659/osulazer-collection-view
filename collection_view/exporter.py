@@ -1,30 +1,19 @@
 from __future__ import annotations
 
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
 from .models import BeatmapEntry, CollectionInfo
 
-
-EXPORT_HEADERS = [
-    "Collection",
-    "Mode",
-    "Missing",
-    "Name",
-    "Artist",
-    "Title",
-    "BID",
-    "SID",
-    "Difficulty",
-    "Mapper",
-    "Background URL",
-    "MD5",
-]
+MODE_EXPORT_ORDER = ("osu", "taiko", "ctb", "mania")
 
 
-def _sheet_name(base: str, used: set[str]) -> str:
+def _safe_sheet_name(base: str, used: set[str]) -> str:
+    """Excel sheet 名长度有限，这里统一做清洗和去重。"""
     cleaned = (base or "Collection").replace("/", " ").replace("\\", " ").replace("*", " ").replace("?", " ")
     cleaned = cleaned.replace("[", "(").replace("]", ")").replace(":", " ").strip() or "Collection"
     cleaned = cleaned[:31]
@@ -38,111 +27,87 @@ def _sheet_name(base: str, used: set[str]) -> str:
     return candidate
 
 
-def _write_rows(sheet, collection_name: str, items: list[BeatmapEntry]) -> None:
-    sheet.append(EXPORT_HEADERS)
+def _safe_filename(base: str, suffix: str) -> str:
+    """按 Windows 文件名规则做最小清洗，避免 zip 内文件名非法。"""
+    cleaned = (base or "export").strip()
+    for char in '<>:"/\\|?*':
+        cleaned = cleaned.replace(char, "_")
+    return f"{cleaned}{suffix}"
+
+
+def _write_header_row(sheet, headers: list[str]) -> None:
+    sheet.append(headers)
     for cell in sheet[1]:
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center")
 
-    for item in items:
-        sheet.append(
-            [
-                collection_name,
-                item.mode,
-                "Yes" if item.missing else "No",
-                item.name,
-                item.artist,
-                item.title,
-                item.bid_text,
-                item.sid_text,
-                item.difficulty_name,
-                item.mapper,
-                item.background_url,
-                item.md5,
-            ]
-        )
 
-    widths = {
-        "A": 24,
-        "B": 12,
-        "C": 10,
-        "D": 38,
-        "E": 22,
-        "F": 24,
-        "G": 12,
-        "H": 12,
-        "I": 24,
-        "J": 18,
-        "K": 56,
-        "L": 36,
-    }
-    for column, width in widths.items():
-        sheet.column_dimensions[column].width = width
+def _autosize_columns(sheet, minimum: int = 10, maximum: int = 40) -> None:
+    """按内容估算列宽，避免导出后肉眼难看。"""
+    for column_cells in sheet.columns:
+        letter = column_cells[0].column_letter
+        max_length = max(len(str(cell.value or "")) for cell in column_cells)
+        sheet.column_dimensions[letter].width = min(max(max_length + 2, minimum), maximum)
 
 
-def export_collection(path: Path, collection: CollectionInfo, mode: str) -> None:
+def export_current_view(path: Path, sheet_name: str, headers: list[str], rows: list[list[str]]) -> None:
+    """导出当前表格所见即所得的谱面列表。"""
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "Collection"
-    _write_rows(sheet, collection.name, collection.items_for_mode(mode))
+    sheet.title = _safe_sheet_name(sheet_name or "Beatmaps", set())
+    _write_header_row(sheet, headers)
+
+    for row in rows:
+        sheet.append(row)
+
+    _autosize_columns(sheet)
     workbook.save(path)
 
 
-def export_filtered(path: Path, collections: list[CollectionInfo], mode: str) -> None:
+def build_mode_workbook(
+    collections: list[CollectionInfo],
+    mode: str,
+    headers: list[str],
+    row_builder,
+) -> Workbook:
+    """单个模式一个 Excel，Summary + 每个收藏夹一个 sheet。"""
     workbook = Workbook()
     summary = workbook.active
     summary.title = "Summary"
-    summary.append(["Collection", "Mode", "Visible Items", "Missing Items", "Last Modified"])
-    for cell in summary[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
+    _write_header_row(summary, ["Collection", "Mode", "Visible Items", "Missing Items", "Last Modified"])
 
     used_names = {"Summary"}
     for collection in collections:
-        visible_items = collection.items_for_mode(mode)
-        if not visible_items:
+        items = collection.items_for_mode(mode)
+        if not items:
             continue
 
         summary.append(
             [
                 collection.name,
                 mode,
-                len(visible_items),
-                sum(1 for item in visible_items if item.missing),
+                len(items),
+                sum(1 for item in items if item.missing),
                 collection.last_modified_text,
             ]
         )
 
-        sheet = workbook.create_sheet(_sheet_name(collection.name, used_names))
-        _write_rows(sheet, collection.name, visible_items)
+        sheet = workbook.create_sheet(_safe_sheet_name(collection.name, used_names))
+        _write_header_row(sheet, headers)
+        for item in items:
+            sheet.append(row_builder(collection.name, item))
+        _autosize_columns(sheet)
 
-    for column, width in {"A": 28, "B": 12, "C": 14, "D": 14, "E": 22}.items():
-        summary.column_dimensions[column].width = width
-
-    workbook.save(path)
+    _autosize_columns(summary, maximum=28)
+    return workbook
 
 
-def export_current_view(
-    path: Path,
-    sheet_name: str,
-    headers: list[str],
-    rows: list[list[str]],
-) -> None:
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = _sheet_name(sheet_name or "Beatmaps", set())
-
-    sheet.append(headers)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-        cell.alignment = Alignment(horizontal="center")
-
-    for row in rows:
-        sheet.append(row)
-
-    for column_cells in sheet.columns:
-        letter = column_cells[0].column_letter
-        max_length = max(len(str(cell.value or "")) for cell in column_cells)
-        sheet.column_dimensions[letter].width = min(max(max_length + 2, 10), 40)
-
-    workbook.save(path)
+def export_all_modes_zip(path: Path, collections: list[CollectionInfo], headers: list[str], row_builder) -> None:
+    """导出四个模式的压缩包，每个模式一个 workbook。"""
+    with ZipFile(path, "w", compression=ZIP_DEFLATED) as archive:
+        for mode in MODE_EXPORT_ORDER:
+            workbook = build_mode_workbook(collections, mode, headers, row_builder)
+            buffer = BytesIO()
+            workbook.save(buffer)
+            workbook.close()
+            archive.writestr(_safe_filename(f"collections_{mode}", ".xlsx"), buffer.getvalue())
