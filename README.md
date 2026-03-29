@@ -1,28 +1,15 @@
 # osulazer-collection-view
 
-一个用于查看 `osu!lazer` 收藏夹的桌面工具（vibe coding）。
+一个用于查看 `osu!lazer` 收藏夹的桌面工具。（Vibe Coding）
 
-它会直接读取项目根目录下的 `client.realm`，调用仓库内的 C# 提取器把收藏夹数据导出成 JSON，再由 Python 图形界面展示收藏夹、谱面列表、背景图预览和详情弹窗。
+它会读取你选择的 `.realm` 数据库文件，后台调用仓库内已经编译好的 `extractor.exe` 提取收藏夹数据到 JSON，再由 Python 图形界面展示收藏夹、谱面列表、背景图预览和详情弹窗。
 
-下载地址：[百度网盘](https://pan.baidu.com/s/1vOLGLnqPElFBv41toFBQ_w?pwd=mkmu)
+下载地址：[百度网盘](https://pan.baidu.com/s/1L_rmqJHo_WcCzSwqVMpgwg?pwd=fh3k)
 
 ![主界面](home.png)
 ![其他页面](other.png)
 
-## 功能
-
-- 检测项目目录下的 `client.realm`
-- 按模式筛选：`osu`、`taiko`、`ctb`、`mania`
-- 展示收藏夹列表，默认按修改时间倒序排列（由近及远）
-- 展示当前收藏夹下的谱面列表
-- 左侧预览当前选中谱面的背景图
-- 双击谱面弹出详细信息
-- 导出当前展示列表到 Excel
-- 可自定义谱面列表显示列
-
 ## 使用说明
-
-### 发布版使用
 
 发布目录：
 
@@ -32,52 +19,17 @@ dist/osulazer-collection-view/
 
 使用步骤：
 
-1. 把 `client.realm` 复制到 `osulazer-collection-view.exe` 同目录
-2. 双击 `osulazer-collection-view.exe`
-3. 点击“刷新检测”
-4. 确认检测到 `client.realm`
-5. 点击“加载”
+1. 双击 `osulazer-collection-view.exe`
+2. 点击“浏览 Realm”
+3. 选择你的 `client.realm` 或其他 `.realm` 数据库文件
+4. 点击“加载”
+5. 等待后台运行 `extractor.exe` 完成解析
 
 说明：
 
 - 发布版已经包含 Python 运行时
-- 发布版已经包含自包含的 C# / .NET 提取器
+- 发布版已经包含 `extractor.exe` 和 `realm-wrappers.dll`
 - 目标机器不需要额外安装 Python 或 .NET
-
-### 收藏夹与模式筛选
-
-- 左侧收藏夹列表默认按时间倒序展示，越新的收藏夹越靠前
-- 左侧选择收藏夹
-- 左上角切换模式
-- 右侧查看当前模式下的谱面列表
-
-### 背景图预览
-
-- 单击谱面列表项
-- 左下角会显示该谱面的背景图
-
-### 详细信息
-
-- 双击谱面列表项
-- 会弹出谱面详情窗口
-
-### 导出 Excel
-
-- 右上角点击“导出”
-- 选择保存路径
-- 导出内容为“当前展示的谱面列表”
-- 导出列会跟随当前表格的显示列
-
-### 列设置
-
-- 点击“谱面列表”右侧的设置图标
-- 勾选或取消列
-- 如果新增了显示列，可能需要手动拖动表头分隔线调整列宽，才能完整显示内容
-- 更改会立即生效并保存在：
-
-```text
-runtime/ui_settings.json
-```
 
 ## 运行时文件
 
@@ -85,33 +37,12 @@ runtime/ui_settings.json
 
 - `runtime/covers/`：缓存的背景图
 - `runtime/extracted.json`：当前最新的提取结果
-- `runtime/ui_settings.json`：界面列设置
+- `runtime/ui_settings.json`：界面列设置和上次选择的 realm 路径
 
-## 常见问题
-
-### 1. 点击“加载”后失败
-
-先检查：
-
-- `osulazer-collection-view.exe` 同目录是否真的存在 `client.realm`
-- 是否点击了“刷新检测”
-
-### 2. 背景图不显示
-
-可能原因：
-
-- 谱面条目缺少本地信息
-- 对应 `sid` 不存在
-- 网络暂时无法访问 `assets.ppy.sh`
-- 图片尚未下载完成
-
-### 3. 为什么需要 C# 提取器
-
-因为 `client.realm` 是 `osu!lazer` 使用的 Realm 数据库，直接在 Python 里读取这套结构并不方便。当前项目通过 Realm 的 .NET 生态做只读提取，再把结果交给 Python 界面使用。
 
 ## 打包发布
 
-如果你想重新打包成“多文件、双击 exe 即可运行”的版本，可以直接执行：
+重新打包多文件桌面版可以直接执行：
 
 ```powershell
 .\build.ps1
@@ -120,8 +51,9 @@ runtime/ui_settings.json
 打包脚本会自动完成这些事：
 
 - 安装 / 更新 Python 打包依赖
-- 用 `dotnet publish` 生成自包含的 C# 提取器
+- 检查 `extractor\extractor.exe` 和 `extractor\realm-wrappers.dll`
 - 用 `PyInstaller --onedir` 打包 Python 图形界面
+- 将 `assets/` 和 `extractor/` 一起打进发布目录
 - 使用 `assets/logo.ico` 作为应用图标
 
 ## 开发与构建
@@ -132,11 +64,10 @@ runtime/ui_settings.json
 osulazer-collection-view/
 |-- app.py
 |-- requirements.txt
-|-- client.realm                # 需要手动放到这里
-|-- collection_view/            # Python 代码
-|-- extractor/                  # C# / .NET 提取器
-|-- assets/                     # 模式图标、设置图标
-`-- runtime/                    # 运行时生成内容
+|-- collection_view/           # Python 代码
+|-- extractor/                 # 已编译提取器运行文件
+|-- assets/                    # 模式图标、设置图标
+`-- runtime/                   # 运行时生成内容
 ```
 
 ### 开发版启动
@@ -148,10 +79,10 @@ python app.py
 
 开发版启动后：
 
-1. 点击“刷新检测”
-2. 确认检测到 `client.realm`
+1. 点击“浏览 Realm”
+2. 选择 `.realm` 数据库文件
 3. 点击“加载”
-4. 程序会自动编译提取器并读取数据库
+4. 程序会直接后台运行 `extractor.exe`
 
 ### Python 环境
 
@@ -164,58 +95,23 @@ python app.py
 - `openpyxl`
 - `requests`
 
-### C# / .NET 环境
+### 提取器说明
 
-本项目虽然主界面是 Python，但数据提取依赖一个 C# 控制台程序，位于 [`extractor/`](./extractor)。
+当前项目仓库内直接放置了提取器运行文件：
 
-提取器当前配置：
+- [`extractor/extractor.exe`](./extractor/extractor.exe)
+- [`extractor/realm-wrappers.dll`](./extractor/realm-wrappers.dll)
 
-- SDK 风格项目
-- 目标框架：`net9.0`
-- NuGet 包：`Realm 20.1.0`
-- 使用 `FodyWeavers.xml` 启用 Realm 的编织步骤
-
-你需要准备：
-
-1. 安装 `.NET SDK 9.0` 或更高版本
-2. 保证 `dotnet` 已加入系统 `PATH`
-3. 能正常访问 NuGet 包源
-
-建议检查命令：
+主程序调用方式：
 
 ```powershell
-dotnet --info
-dotnet --list-sdks
+.\extractor\extractor.exe .\client.realm .\runtime\extracted.json
 ```
 
-### C# 提取器说明
+注意：
 
-提取器项目文件：
-
-- [`extractor/CollectionRealmExtractor.csproj`](./extractor/CollectionRealmExtractor.csproj)
-- [`extractor/Program.cs`](./extractor/Program.cs)
-- [`extractor/FodyWeavers.xml`](./extractor/FodyWeavers.xml)
-
-项目使用方式：
-
-- Python 主程序首次点击“加载”时，会自动调用 `dotnet build`
-- 编译成功后，生成的可执行程序集会放在：
-
-```text
-extractor/bin/Release/net9.0/
-```
-
-如果你想手动编译，可以运行：
-
-```powershell
-dotnet build extractor\CollectionRealmExtractor.csproj -c Release
-```
-
-如果你想单独测试提取器，可运行：
-
-```powershell
-dotnet extractor\bin\Release\net9.0\CollectionRealmExtractor.dll .\client.realm .\runtime\extracted.json
-```
+- `realm-wrappers.dll` 需要和 `extractor.exe` 放在同一目录
+- 提取器以只读方式打开 `client.realm`
 
 ## 依赖版本
 
@@ -226,15 +122,8 @@ dotnet extractor\bin\Release\net9.0\CollectionRealmExtractor.dll .\client.realm 
 - openpyxl `>=3.1.5`
 - requests `>=2.32.3`
 
-### .NET / C#
-
-- .NET SDK `9.0+`
-- Target Framework: `net9.0`
-- Realm `20.1.0`
-
 ## 备注
 
 - 背景图使用公开资源地址：
   `https://assets.ppy.sh/beatmaps/{sid}/covers/cover.jpg`
 - 对于收藏夹中存在但当前本地数据库无法解析的条目，会显示为缺失项
-- 提取器以只读方式打开 `client.realm`

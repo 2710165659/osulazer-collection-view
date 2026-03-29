@@ -6,11 +6,11 @@ from pathlib import Path
 app_name = "osulazer-collection-view"
 project_dir = Path(SPECPATH)
 assets_dir = project_dir / "assets"
-extractor_runtime_dir = project_dir / "build" / "extractor_runtime"
+extractor_dir = project_dir / "extractor"
 
 datas = [
     (str(assets_dir), "assets"),
-    (str(extractor_runtime_dir), "extractor_runtime"),
+    (str(extractor_dir), "extractor"),
 ]
 
 
