@@ -13,8 +13,9 @@
     "windows": [
       {
         "title": "osu!lazer收藏夹查看工具",
-        "width": 1280,
-        "height": 800
+        "width": 1200,
+        "height": 800,
+        "maximized": true
       }
     ],
     "security": {
