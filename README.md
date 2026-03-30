@@ -4,7 +4,7 @@
 
 它会读取你选择的 `.realm` 数据库文件，后台调用仓库内已经编译好的 `extractor.exe` 提取收藏夹数据到 JSON，再由 Python 图形界面展示收藏夹、谱面列表、背景图预览和详情弹窗。
 
-下载地址：[百度网盘](https://pan.baidu.com/s/1L_rmqJHo_WcCzSwqVMpgwg?pwd=fh3k)
+下载地址：见右侧Release
 
 ![主界面](home.png)
 ![其他页面](other.png)
