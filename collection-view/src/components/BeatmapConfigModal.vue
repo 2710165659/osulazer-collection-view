@@ -16,14 +16,38 @@
           <el-button text type="primary" @click="restoreDefaults">恢复默认</el-button>
         </div>
 
-        <el-input-tag
-          v-model="visibleLabels"
+        <div
           class="column-order-input"
-          draggable
-          readonly
-          tag-effect="plain"
-          placeholder="从下方点击列名，把它加入当前展示列"
-        />
+          :class="{ 'is-empty': !selectedKeys.length }"
+          role="list"
+          ref="columnOrderListRef"
+        >
+          <span v-if="!selectedKeys.length" class="column-order-placeholder">
+            点击下方列卡片添加显示列
+          </span>
+          <div
+            v-for="(key, index) in selectedKeys"
+            :key="key"
+            class="column-order-item"
+            :class="{
+              'is-dragging': draggingKey === key,
+              'is-drag-over': dragOverKey === key,
+            }"
+            role="listitem"
+            :aria-grabbed="draggingKey === key"
+            :data-column-order-key="key"
+            @pointerdown="handleColumnPointerDown($event, index)"
+          >
+            <el-tag
+              closable
+              disable-transitions
+              effect="plain"
+              @close="removeColumn(key)"
+            >
+              {{ getColumnLabel(key) }}
+            </el-tag>
+          </div>
+        </div>
       </section>
 
       <section class="panel">
@@ -66,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { ElMessage } from "element-plus";
 import { Check } from "@element-plus/icons-vue";
 import type { BeatmapColumnConfig } from "@/utils/beatmapColumns";
@@ -87,30 +111,204 @@ const localVisible = ref(false);
 const allColumns = ref<BeatmapColumnConfig[]>([]);
 const defaultColumns = ref<BeatmapColumnConfig[]>([]);
 const selectedKeys = ref<string[]>([]);
+const columnOrderListRef = ref<HTMLElement | null>(null);
+const draggingKey = ref<string | null>(null);
+const dragOverKey = ref<string | null>(null);
 
-const labelToKeyMap = computed(() => {
-  return new Map(allColumns.value.map((item) => [item.label, item.key]));
-});
+const POINTER_DRAG_THRESHOLD = 4; // 移动超过四像素才进入拖拽，避免点击标签时误触排序。
 
-const visibleLabels = computed<string[]>({
-  get: () =>
-    selectedKeys.value
-      .map((key) => allColumns.value.find((item) => item.key === key)?.label)
-      .filter((label): label is string => Boolean(label)),
-  set: (labels) => {
-    // InputTag 的拖拽和删除都会回写 labels，这里统一还原到真实 key。
-    const nextKeys: string[] = [];
-    labels.forEach((label) => {
-      const key = labelToKeyMap.value.get(label);
-      if (key && !nextKeys.includes(key)) {
-        nextKeys.push(key);
-      }
-    });
-    selectedKeys.value = nextKeys;
-  },
-});
+interface ColumnPointerSession {
+  key: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  sourceElement: HTMLElement;
+  active: boolean;
+  targetKey: string | null;
+  targetPosition: "before" | "after" | null;
+}
 
-const syncFromProps = () => {
+let columnPointerSession: ColumnPointerSession | null = null;
+
+/**
+ * 根据字段键读取列标签，字段不存在时保留键本身以避免拖拽项消失。
+ */
+const getColumnLabel = (key: string): string => {
+  return allColumns.value.find((item) => item.key === key)?.label ?? key;
+};
+
+/**
+ * 从当前显示顺序中移除指定列，等同于 InputTag 的关闭标签操作。
+ */
+const removeColumn = (key: string): void => {
+  selectedKeys.value = selectedKeys.value.filter((item) => item !== key);
+};
+
+/**
+ * 记录标签按下位置，并在移动达到阈值后启动指针拖拽会话。
+ */
+const handleColumnPointerDown = (event: PointerEvent, index: number): void => {
+  if (event.button !== 0) {
+    return;
+  }
+
+  const target = event.target as HTMLElement | null;
+  if (target?.closest("button")) {
+    return; // 关闭按钮只负责隐藏列，不参与拖拽。
+  }
+
+  const key = selectedKeys.value[index];
+  if (!key) {
+    return;
+  }
+
+  const sourceElement = event.currentTarget as HTMLElement | null;
+  if (!sourceElement) {
+    return;
+  }
+
+  event.preventDefault(); // 禁止拖动文字选中，指针移动由业务排序逻辑接管。
+  columnPointerSession = {
+    key,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    sourceElement,
+    active: false,
+    targetKey: null,
+    targetPosition: null,
+  };
+  sourceElement.setPointerCapture?.(event.pointerId); // 指针移出标签后仍能收到 pointerup。
+  window.addEventListener("pointermove", handleColumnPointerMove);
+  window.addEventListener("pointerup", handleColumnPointerUp);
+  window.addEventListener("pointercancel", handleColumnPointerCancel);
+};
+
+/**
+ * 根据指针坐标找到当前悬停的列标签。
+ */
+const getColumnItemAtPoint = (clientX: number, clientY: number): HTMLElement | null => {
+  const list = columnOrderListRef.value;
+  const element = document.elementFromPoint(clientX, clientY);
+  const item = element?.closest<HTMLElement>("[data-column-order-key]") ?? null;
+  return item && list?.contains(item) ? item : null;
+};
+
+/**
+ * 更新指针拖拽的目标列和插入方向，并实时显示目标高亮。
+ */
+const handleColumnPointerMove = (event: PointerEvent): void => {
+  const session = columnPointerSession;
+  if (!session || event.pointerId !== session.pointerId) {
+    return;
+  }
+
+  const distance = Math.hypot(
+    event.clientX - session.startX,
+    event.clientY - session.startY
+  );
+  if (!session.active && distance < POINTER_DRAG_THRESHOLD) {
+    return;
+  }
+
+  if (!session.active) {
+    session.active = true;
+    draggingKey.value = session.key;
+  }
+  event.preventDefault();
+
+  const target = getColumnItemAtPoint(event.clientX, event.clientY);
+  const targetKey = target?.dataset.columnOrderKey ?? null;
+  if (!target || !targetKey || targetKey === session.key) {
+    session.targetKey = null;
+    session.targetPosition = null;
+    dragOverKey.value = null;
+    return;
+  }
+
+  const bounds = target.getBoundingClientRect();
+  const isAfter =
+    event.clientY >= bounds.top + bounds.height / 2 ||
+    (event.clientY >= bounds.top &&
+      event.clientY <= bounds.bottom &&
+      event.clientX >= bounds.left + bounds.width / 2);
+  const position = isAfter ? "after" : "before";
+  session.targetKey = targetKey;
+  session.targetPosition = position;
+  dragOverKey.value = targetKey;
+};
+
+/**
+ * 按目标列前后位置移动源列，并立即更新当前草稿顺序。
+ */
+const reorderColumn = (
+  sourceKey: string,
+  targetKey: string,
+  position: "before" | "after"
+): void => {
+  const sourceIndex = selectedKeys.value.indexOf(sourceKey);
+  const targetIndex = selectedKeys.value.indexOf(targetKey);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
+    return;
+  }
+
+  let insertionIndex = targetIndex + (position === "after" ? 1 : 0);
+  if (sourceIndex < insertionIndex) {
+    insertionIndex -= 1; // 移除源项后，目标索引需要向前校正一位。
+  }
+
+  const nextKeys = [...selectedKeys.value];
+  const [movedKey] = nextKeys.splice(sourceIndex, 1);
+  nextKeys.splice(Math.max(0, Math.min(insertionIndex, nextKeys.length)), 0, movedKey);
+  selectedKeys.value = nextKeys;
+};
+
+/**
+ * 清理指针拖拽监听与临时状态，避免弹窗关闭后残留全局事件。
+ */
+const clearColumnDragState = (): void => {
+  const session = columnPointerSession;
+  if (session?.sourceElement.hasPointerCapture?.(session.pointerId)) {
+    session.sourceElement.releasePointerCapture(session.pointerId);
+  }
+  window.removeEventListener("pointermove", handleColumnPointerMove);
+  window.removeEventListener("pointerup", handleColumnPointerUp);
+  window.removeEventListener("pointercancel", handleColumnPointerCancel);
+  columnPointerSession = null;
+  draggingKey.value = null;
+  dragOverKey.value = null;
+};
+
+/**
+ * 松开指针后提交列顺序变更，并结束当前拖拽会话。
+ */
+const handleColumnPointerUp = (event: PointerEvent): void => {
+  const session = columnPointerSession;
+  if (!session || event.pointerId !== session.pointerId) {
+    return;
+  }
+
+  if (session.active && session.targetKey && session.targetPosition) {
+    reorderColumn(session.key, session.targetKey, session.targetPosition);
+  }
+  clearColumnDragState();
+};
+
+/**
+ * 指针被系统取消时放弃本次拖拽，不改变原有列顺序。
+ */
+const handleColumnPointerCancel = (event: PointerEvent): void => {
+  if (columnPointerSession?.pointerId === event.pointerId) {
+    clearColumnDragState();
+  }
+};
+
+onBeforeUnmount(clearColumnDragState);
+
+/**
+ * 每次打开弹窗时从已应用配置重建本地草稿。
+ */
+const syncFromProps = (): void => {
   allColumns.value = cloneBeatmapConfig(props.currentConfig);
   defaultColumns.value = cloneBeatmapConfig(props.defaultConfig);
   selectedKeys.value = props.currentConfig.filter((item) => item.visible).map((item) => item.key);
@@ -133,9 +331,15 @@ watch(localVisible, (value) => {
   }
 });
 
-const isSelected = (key: string) => selectedKeys.value.includes(key);
+/**
+ * 判断指定列当前是否可见。
+ */
+const isSelected = (key: string): boolean => selectedKeys.value.includes(key);
 
-const toggleColumn = (key: string) => {
+/**
+ * 切换指定列的显示状态，并保持用户选择顺序。
+ */
+const toggleColumn = (key: string): void => {
   if (isSelected(key)) {
     selectedKeys.value = selectedKeys.value.filter((item) => item !== key);
     return;
@@ -144,20 +348,32 @@ const toggleColumn = (key: string) => {
   selectedKeys.value = [...selectedKeys.value, key];
 };
 
-const restoreDefaults = () => {
+/**
+ * 恢复由 Rust 后端提供的默认列和顺序。
+ */
+const restoreDefaults = (): void => {
   allColumns.value = cloneBeatmapConfig(defaultColumns.value);
   selectedKeys.value = defaultColumns.value.filter((item) => item.visible).map((item) => item.key);
 };
 
-const closeDialog = () => {
+/**
+ * 取消本次列配置修改并关闭弹窗。
+ */
+const closeDialog = (): void => {
   localVisible.value = false;
 };
 
-const handleClosed = () => {
+/**
+ * 弹窗动画结束后同步父组件的显示状态。
+ */
+const handleClosed = (): void => {
   emit("update:modelValue", false);
 };
 
-const confirmSelect = () => {
+/**
+ * 校验并提交新的列可见状态和排列顺序。
+ */
+const confirmSelect = (): void => {
   if (!selectedKeys.value.length) {
     ElMessage.warning("至少保留一列用于展示和导出。");
     return;
@@ -219,6 +435,52 @@ const confirmSelect = () => {
 
 .column-order-input {
   width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: #fff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.column-order-input:focus-within,
+.column-order-input:hover {
+  border-color: #c0c4cc;
+}
+
+.column-order-input.is-empty {
+  color: #909399;
+}
+
+.column-order-placeholder {
+  font-size: 13px;
+  line-height: 24px;
+}
+
+.column-order-item {
+  display: inline-flex;
+  align-items: center;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.column-order-item:active {
+  cursor: grabbing;
+}
+
+.column-order-item.is-dragging {
+  opacity: 0.45;
+}
+
+.column-order-item.is-drag-over {
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.35);
 }
 
 .counter {

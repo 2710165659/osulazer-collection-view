@@ -16,12 +16,26 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted } from "vue";
+import { ElMessage } from "element-plus";
+
 import BeatmapList from "./components/BeatmapList.vue";
 import CollectionList from "./components/CollectionList.vue";
 import MyHeader from "./components/MyHeader.vue";
 import BeatmapImg from "./components/BeatmapImg.vue";
+import { useAppStore } from "./store/useAppStore";
 
+const appStore = useAppStore();
 
+/**
+ * 应用挂载后从 Rust 设置文件恢复用户配置。
+ */
+onMounted(async () => {
+  await appStore.initialize();
+  if (appStore.lastError) {
+    ElMessage.warning(appStore.lastError);
+  }
+});
 </script>
 
 <style>
@@ -45,7 +59,7 @@ import BeatmapImg from "./components/BeatmapImg.vue";
 }
 
 .header {
-  flex: 0 0 88px;
+  flex: 0 0 64px; /* 顶部信息改为单行后使用紧凑高度。 */
 }
 
 .main {

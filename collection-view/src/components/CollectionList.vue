@@ -3,20 +3,53 @@
     <div class="title">
       <div class="title-text">
         <h3>收藏夹列表</h3>
-        <p>{{ collectionCountText }}</p>
+        <p>当前模式 {{ modeLabelMap[appStore.selectedMode] }}，共 {{ appStore.collections.length }} 个</p>
       </div>
-      <el-radio-group v-model="selectedRuleset" size="small">
-        <el-radio-button label="osu">osu!</el-radio-button>
-        <el-radio-button label="taiko">Taiko</el-radio-button>
-        <el-radio-button label="catch">Catch</el-radio-button>
-        <el-radio-button label="mania">Mania</el-radio-button>
-      </el-radio-group>
+      <el-select
+        :model-value="appStore.selectedMode"
+        size="small"
+        class="mode-select"
+        @change="handleModeChange"
+      >
+        <el-option
+          v-for="mode in modeDefinitions"
+          :key="mode.key"
+          :label="mode.label"
+          :value="mode.key"
+        >
+          <template #default>
+            <div class="mode-option">
+              <img
+                v-if="modeIconPath(mode.key)"
+                class="mode-icon"
+                :src="modeIconPath(mode.key)"
+                :alt="`${mode.label}图标`"
+              />
+              <span v-else class="mode-icon-placeholder" aria-hidden="true" />
+              <span>{{ mode.label }}</span>
+            </div>
+          </template>
+        </el-option>
+        <template #label="{ label }">
+          <div class="mode-option">
+            <img
+              v-if="modeIconPath(appStore.selectedMode)"
+              class="mode-icon"
+              :src="modeIconPath(appStore.selectedMode)"
+              :alt="`${label}图标`"
+            />
+            <span v-else class="mode-icon-placeholder" aria-hidden="true" />
+            <span>{{ label }}</span>
+          </div>
+        </template>
+      </el-select>
     </div>
 
     <div class="table-wrapper">
       <el-table
         ref="tableRef"
-        :data="tableData"
+        v-loading="appStore.loadingCollections"
+        :data="appStore.collections"
         :empty-text="emptyText"
         height="100%"
         border
@@ -24,85 +57,124 @@
         row-key="id"
         @row-click="handleRowClick"
       >
-        <el-table-column prop="name" label="收藏夹" min-width="190" show-overflow-tooltip />
-        <el-table-column prop="total" label="总数" width="72" align="center" />
-        <el-table-column prop="currentModeTotal" label="当前模式" width="88" align="center" />
-        <el-table-column prop="lastModified" label="更新时间" min-width="120" show-overflow-tooltip />
+        <!-- 收藏夹列按需求缩小约 20%，更新时间只展示日期。 -->
+        <el-table-column prop="name" label="收藏夹" min-width="142" show-overflow-tooltip />
+        <el-table-column prop="totalCount" label="总数" width="64" align="center" />
+        <el-table-column prop="currentModeCount" label="当前" width="64" align="center" />
+        <el-table-column v-if="showMissingColumn" prop="missingCount" label="缺失" width="64" align="center" />
+        <el-table-column prop="lastModified" label="更新时间" min-width="142" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ formatDate(row.lastModified) }}
+          </template>
+        </el-table-column>
       </el-table>
     </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { computed, ref, watch } from "vue";
-import { useCollectionsStore } from "@/store/useCollectionsStore";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { ElMessage } from "element-plus";
 
-const collectionsStore = useCollectionsStore();
+import type { CollectionSummary } from "@/entities/Collection";
+import { useRealtimeColumnResize } from "@/composables/useRealtimeColumnResize";
+import { useAppStore } from "@/store/useAppStore";
+import {
+  formatDate,
+  modeLabelMap,
+  modeDefinitions,
+  type ModeKey,
+} from "@/utils/beatmapColumns";
+
+const appStore = useAppStore();
 const tableRef = ref();
+const { bindRealtimeResize } = useRealtimeColumnResize(tableRef, (property) =>
+  property === "name" || property === "lastModified" ? 100 : 60
+); // 收藏夹名与更新时间按文本列限制，其余计数列保持紧凑。
 
-const selectedRuleset = computed({
-  get: () => collectionsStore.selectedRuleset ?? "osu",
-  set: (value: string) => collectionsStore.setSelectedRuleset(value),
+const modeIconMap: Partial<Record<ModeKey, string>> = {
+  osu: "/modes/osu.png",
+  taiko: "/modes/taiko.png",
+  ctb: "/modes/ctb.png",
+  mania: "/modes/mania.png",
+}; // 复用 Python 版本的四个实际模式图标资源，all 和 missing 保留文字显示。
+
+/**
+ * 返回模式选项对应的图标路径。
+ */
+const modeIconPath = (mode: ModeKey): string => modeIconMap[mode] ?? "";
+
+/**
+ * 收藏夹表格挂载后启用实时列宽拖拽。
+ */
+onMounted(() => {
+  void bindRealtimeResize();
 });
 
-const tableData = computed(() => {
-  return (
-    collectionsStore.CollectionsList?.collections.map((collection) => ({
-      id: collection.id,
-      name: collection.name,
-      total: collection.items.length,
-      lastModified: collection.lastModified,
-      currentModeTotal: collection.items.filter(
-        (item) => item.rulesetShortName === collectionsStore.selectedRuleset
-      ).length,
-      raw: collection,
-    })) ?? []
-  );
-});
+/**
+ * 在全部和缺失模式下额外展示收藏夹缺失数量。
+ */
+const showMissingColumn = computed(() =>
+  ["all", "missing"].includes(appStore.selectedMode)
+);
 
-const collectionCountText = computed(() => `共 ${tableData.value.length} 个收藏夹`);
-
+/**
+ * 根据数据库状态返回收藏夹表格的空内容提示。
+ */
 const emptyText = computed(() => {
-  return collectionsStore.CollectionsList ? "当前没有可展示的收藏夹" : "请先加载数据库";
+  if (!appStore.loaded) return "请先加载数据库";
+  return "当前模式没有可展示的收藏夹";
 });
 
-const handleRowClick = (row: (typeof tableData.value)[number]) => {
-  collectionsStore.setSelectedCollection(row.raw);
+/**
+ * 将收藏夹交互中的未知错误转换为界面消息。
+ */
+const showActionError = (title: string, error: unknown): void => {
+  const text = error instanceof Error ? error.message : String(error);
+  ElMessage.error(`${title}：${text}`);
 };
 
-// 左侧收藏夹变化时同步高亮，避免用户在两个列表之间切换时状态丢失。
+/**
+ * 切换模式并由 Rust 重新计算收藏夹汇总。
+ */
+const handleModeChange = async (mode: ModeKey): Promise<void> => {
+  try {
+    await appStore.setMode(mode);
+  } catch (error) {
+    showActionError("切换模式失败", error);
+  }
+};
+
+/**
+ * 选择收藏夹并获取第一页谱面。
+ */
+const handleRowClick = async (row: CollectionSummary): Promise<void> => {
+  try {
+    await appStore.selectCollection(row);
+  } catch (error) {
+    showActionError("加载收藏夹谱面失败", error);
+  }
+};
+
+/**
+ * 收藏夹选择改变时同步表格当前行高亮。
+ */
 watch(
-  () => collectionsStore.selectedCollection,
+  () => appStore.selectedCollection,
   (collection) => {
-    const currentRow = tableData.value.find((item) => item.id === collection?.id);
-    tableRef.value?.setCurrentRow(currentRow ?? undefined);
+    const row = appStore.collections.find((item) => item.id === collection?.id);
+    tableRef.value?.setCurrentRow(row);
   },
   { immediate: true }
 );
 
-watch(
-  [() => collectionsStore.CollectionsList, () => collectionsStore.selectedRuleset],
-  () => {
-    if (!collectionsStore.CollectionsList || !tableData.value.length) {
-      collectionsStore.setSelectedCollection(null);
-      tableRef.value?.setCurrentRow(undefined);
-      return;
-    }
-
-    const currentCollection = collectionsStore.selectedCollection;
-    if (currentCollection && tableData.value.some((item) => item.id === currentCollection.id)) {
-      const row = tableData.value.find((item) => item.id === currentCollection.id);
-      tableRef.value?.setCurrentRow(row ?? undefined);
-      return;
-    }
-
-    const firstAvailable =
-      tableData.value.find((item) => item.currentModeTotal > 0) ?? tableData.value[0];
-    collectionsStore.setSelectedCollection(firstAvailable.raw);
-    tableRef.value?.setCurrentRow(firstAvailable);
-  },
-  { immediate: true }
-);
+/**
+ * 模式切换导致缺失列重新挂载时恢复当前会话中的列宽。
+ */
+watch(showMissingColumn, async () => {
+  await nextTick();
+  void bindRealtimeResize();
+});
 </script>
 
 <style scoped>
@@ -120,8 +192,7 @@ watch(
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
+  gap: 10px;
 }
 
 .title-text {
@@ -129,10 +200,9 @@ watch(
 }
 
 h3 {
-  color: #111827;
-  font-weight: 700;
-  font-size: 15px;
   margin: 0 0 4px;
+  color: #111827;
+  font-size: 15px;
 }
 
 .title-text p {
@@ -141,25 +211,38 @@ h3 {
   font-size: 12px;
 }
 
+.mode-select {
+  width: 108px;
+}
+
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mode-icon,
+.mode-icon-placeholder {
+  display: inline-flex;
+  flex: 0 0 19.2px;
+  width: 19.2px;
+  height: 19.2px; /* 模式图标相对原尺寸放大 20%，占位元素同步保持对齐。 */
+  object-fit: contain;
+}
+
 .table-wrapper {
   flex: 1;
   min-height: 0;
   min-width: 0;
-  max-height: 100%;
-  width: 100%;
-  max-width: 100%;
-  overflow: auto;
+  overflow: hidden;
 }
 
 :deep(.el-table) {
   --el-table-header-bg-color: #f8fafc;
   --el-table-row-hover-bg-color: #eff6ff;
   border-radius: 12px;
-  width: 100%;
-  max-width: 100%;
-  min-width: 0;
   font-size: 12px;
-  margin: 0;
 }
 
 :deep(.el-table th.el-table__cell) {
@@ -170,5 +253,17 @@ h3 {
 
 :deep(.el-table td.el-table__cell) {
   padding: 7px 0;
+}
+
+:deep(.el-table__header-wrapper),
+:deep(.el-table__body-wrapper),
+:deep(.el-table__footer-wrapper),
+:deep(.el-table .el-scrollbar__wrap) {
+  overflow-x: hidden !important;
+}
+
+/* 收藏夹表格只保留纵向滚动，隐藏 Element Plus 单独渲染的横向滚动条。 */
+:deep(.el-table .el-scrollbar__bar.is-horizontal) {
+  display: none;
 }
 </style>
