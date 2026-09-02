@@ -1,0 +1,95 @@
+name: 构建并发布 Windows 便携版
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 已存在的发布标签，例如 v2.0.0
+        required: true
+        default: v2.0.0
+
+permissions:
+  contents: write # 标签构建需要将便携 ZIP 上传到 GitHub Release。
+
+jobs:
+  build:
+    name: 编译 Windows 单二进制便携版
+    runs-on: windows-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }} # 手动运行时使用输入标签。
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }} # 标签构建必须固定源码版本。
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: collection-view/package-lock.json
+
+      - name: 配置 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装前端依赖
+        working-directory: collection-view
+        run: npm ci
+
+      - name: 构建前端资源
+        working-directory: collection-view
+        run: npm run build
+
+      - name: 编译 Rust 单二进制
+        working-directory: collection-view/src-tauri
+        run: cargo build --release --features tauri/custom-protocol
+
+      - name: 打包便携 ZIP
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        working-directory: collection-view
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $folderName = "collection-view-$version-windows-x64"
+          $stage = Join-Path $env:RUNNER_TEMP $folderName
+          $zip = Join-Path $env:RUNNER_TEMP "collection-view_${version}_windows_x64_portable.zip"
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          Copy-Item -LiteralPath "src-tauri/target/release/collection-view.exe" -Destination (Join-Path $stage "collection-view.exe")
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+          "ASSET_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Get-FileHash -LiteralPath $zip -Algorithm SHA256 | Format-List
+
+      - name: 创建 GitHub Release
+        if: github.event_name != 'pull_request'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          @"
+          ## v$env:RELEASE_VERSION
+
+          ### 发布内容
+
+          - Tauri 2 + Rust + Vue 3 + TypeScript 桌面应用。
+          - Rust 直接解析 osu!lazer Realm 数据库，支持筛选、排序、分组分页和缺失谱面统计。
+          - 支持列配置、列顺序拖拽、实时列宽调整、封面缓存以及 Excel/ZIP 导出。
+          - 本次资产是免安装 Windows x64 单二进制便携 ZIP，仅包含 `collection-view.exe`。
+
+          ### 使用方式
+
+          解压 ZIP 后直接运行 `collection-view.exe`，首次使用时选择 osu!lazer 的 `.realm` 数据库文件。目标系统需要 WebView2 运行时；程序只读数据库，封面下载需要网络。
+
+          ### 校验
+
+          构建日志会输出该 ZIP 的 SHA-256，可用于下载后校验文件完整性。
+          "@ | Set-Content -LiteralPath $notesPath -Encoding utf8
+          gh release create $env:RELEASE_TAG $env:ASSET_PATH --repo $env:GITHUB_REPOSITORY --title "v$env:RELEASE_VERSION Windows 便携版" --notes-file $notesPath --verify-tag
