@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 已存在的发布标签，例如 v2.0.0
-        required: true
-        default: v2.0.0
+        description: 要构建并发布的标签；留空时使用当前工作流引用
+        required: false
+        default: ""
 
 permissions:
   contents: write # 标签构建需要将便携 ZIP 上传到 GitHub Release。
@@ -22,7 +22,7 @@ jobs:
     name: 编译 Windows 单二进制便携版
     runs-on: windows-latest
     env:
-      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }} # 手动运行时使用输入标签。
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }} # 手动运行时优先使用输入标签，其余事件使用触发引用。
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -57,12 +57,19 @@ jobs:
         working-directory: collection-view
         run: |
           $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -notmatch '^v[^/]+$') {
+            throw "发布事件必须使用 v 开头的标签，当前引用为 $env:RELEASE_TAG。"
+          }
+          $tagVersion = $env:RELEASE_TAG.Substring(1)
+          if ($tagVersion -ne $version) {
+            throw "发布标签 $env:RELEASE_TAG 与 package.json 版本 $version 不一致。"
+          }
           $folderName = "collection-view-$version-windows-x64"
           $stage = Join-Path $env:RUNNER_TEMP $folderName
           $zip = Join-Path $env:RUNNER_TEMP "collection-view_${version}_windows_x64_portable.zip"
-          New-Item -ItemType Directory -Path $stage | Out-Null
-          Copy-Item -LiteralPath "src-tauri/target/release/collection-view.exe" -Destination (Join-Path $stage "collection-view.exe")
-          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+          Copy-Item -LiteralPath "src-tauri/target/release/collection-view.exe" -Destination (Join-Path $stage "collection-view.exe") -Force
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal -Force
           "ASSET_PATH=$zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Get-FileHash -LiteralPath $zip -Algorithm SHA256 | Format-List
@@ -93,4 +100,11 @@ jobs:
 
           构建日志会输出该 ZIP 的 SHA-256，可用于下载后校验文件完整性。
           "@ | Set-Content -LiteralPath $notesPath -Encoding utf8
-          gh release create $env:RELEASE_TAG $env:ASSET_PATH --repo $env:GITHUB_REPOSITORY --title "v$env:RELEASE_VERSION Windows 便携版" --notes-file $notesPath --verify-tag
+          gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+          if ($releaseExists) {
+            gh release upload $env:RELEASE_TAG $env:ASSET_PATH --repo $env:GITHUB_REPOSITORY --clobber
+            gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --title "v$env:RELEASE_VERSION Windows 便携版" --notes-file $notesPath
+          } else {
+            gh release create $env:RELEASE_TAG $env:ASSET_PATH --repo $env:GITHUB_REPOSITORY --title "v$env:RELEASE_VERSION Windows 便携版" --notes-file $notesPath --verify-tag
+          }
