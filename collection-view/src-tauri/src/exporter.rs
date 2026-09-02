@@ -11,7 +11,7 @@ use zip::{write::FileOptions, CompressionMethod, ZipWriter};
 
 use crate::{
     models::{
-        default_columns, BeatmapEntry, ColumnConfig, ExportAllRequest,
+        default_columns, BeatmapEntry, CollectionInfo, ColumnConfig, ExportAllRequest,
         ExportCurrentRequest, ExtractedData,
     },
     services::{normalize_mode, sort_beatmap_refs},
@@ -53,22 +53,52 @@ pub fn export_current(data: &ExtractedData, request: &ExportCurrentRequest) -> R
 }
 
 /**
- * 将四个游戏模式分别生成 Excel，并打包为一个 ZIP 文件。
+ * 将四个游戏模式汇总表和各收藏夹明细表打包为一个 ZIP 文件。
  */
 pub fn export_all_modes(data: &ExtractedData, request: &ExportAllRequest) -> Result<(), String> {
     let columns = visible_columns(&request.columns)?;
     let cursor = Cursor::new(Vec::new());
     let mut archive = ZipWriter::new(cursor);
     let options = FileOptions::default().compression_method(CompressionMethod::Deflated);
+    let mut used_entry_names = HashSet::new(); // 记录 ZIP 内文件名，避免清洗后重名导致解压覆盖。
 
     for mode in MODE_EXPORT_ORDER {
-        let workbook = build_mode_workbook(data, mode, &columns)?;
+        let workbook = build_mode_workbook(data, mode, &columns)?; // 保留原有模式汇总工作簿的行顺序。
         archive
-            .start_file(format!("collections_{mode}.xlsx"), options)
+            .start_file(unique_archive_filename(
+                &format!("collections_{mode}"),
+                "",
+                &mut used_entry_names,
+            ), options)
             .map_err(error_text("无法创建模式 Excel 压缩项"))?;
         archive
             .write_all(&workbook)
             .map_err(error_text("无法写入模式 Excel 压缩项"))?;
+
+        for collection in &data.collections {
+            let items = sorted_collection_items(
+                collection,
+                mode,
+                request.sort_column.as_deref(),
+                request.descending,
+            );
+            if items.is_empty() {
+                continue; // 与“导出当前列表”一致，当前模式没有谱面的收藏夹不生成空文件。
+            }
+
+            let collection_workbook = build_collection_workbook(collection, &columns, &items)?;
+            let entry_name = unique_archive_filename(
+                mode,
+                &collection.name,
+                &mut used_entry_names,
+            );
+            archive
+                .start_file(entry_name, options)
+                .map_err(error_text("无法创建收藏夹 Excel 压缩项"))?;
+            archive
+                .write_all(&collection_workbook)
+                .map_err(error_text("无法写入收藏夹 Excel 压缩项"))?;
+        }
     }
 
     let bytes = archive
@@ -123,6 +153,81 @@ fn build_mode_workbook(
         },
     );
     build_xlsx(sheets)
+}
+
+/**
+ * 按当前列表导出规则生成单个收藏夹的独立工作簿。
+ */
+fn build_collection_workbook(
+    collection: &CollectionInfo,
+    columns: &[ColumnConfig],
+    items: &[&BeatmapEntry],
+) -> Result<Vec<u8>, String> {
+    let sheet = build_beatmap_sheet(collection.name.as_str(), columns, items);
+    build_xlsx(vec![sheet])
+}
+
+/**
+ * 筛选并排序一个收藏夹在指定模式下的谱面，复用当前列表和单收藏夹导出的顺序。
+ */
+fn sorted_collection_items<'a>(
+    collection: &'a CollectionInfo,
+    mode: &str,
+    sort_column: Option<&str>,
+    descending: bool,
+) -> Vec<&'a BeatmapEntry> {
+    let mut items: Vec<&BeatmapEntry> = collection
+        .items
+        .iter()
+        .filter(|item| item.matches_mode(mode))
+        .collect();
+    sort_beatmap_refs(&mut items, sort_column, descending); // 无指定排序时保持当前列表的默认反向顺序。
+    items
+}
+
+/**
+ * 生成 ZIP 内独立收藏夹工作簿的唯一文件名。
+ */
+fn unique_archive_filename(
+    mode: &str,
+    collection_name: &str,
+    used_names: &mut HashSet<String>,
+) -> String {
+    let base = if collection_name.is_empty() {
+        mode.to_string()
+    } else {
+        format!("{mode}_{}", sanitize_archive_component(collection_name))
+    };
+    let mut candidate = format!("{base}.xlsx");
+    let mut suffix_index = 1usize;
+    while used_names.contains(&candidate.to_lowercase()) {
+        let suffix = format!("_{suffix_index}");
+        let truncated = truncate_chars(&base, 180usize.saturating_sub(suffix.len()));
+        candidate = format!("{truncated}{suffix}.xlsx");
+        suffix_index += 1;
+    }
+    used_names.insert(candidate.to_lowercase()); // ZIP 文件名按不区分大小写的方式去重，兼容 Windows 解压器。
+    candidate
+}
+
+/**
+ * 清洗收藏夹名称，使其适合作为 ZIP 内的 Windows 文件名片段。
+ */
+fn sanitize_archive_component(value: &str) -> String {
+    let cleaned = sanitize_xml_text(value)
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            character if character.is_control() => '_',
+            character => character,
+        })
+        .collect::<String>();
+    let trimmed = cleaned.trim().trim_matches('.').trim();
+    if trimmed.is_empty() {
+        "collection".to_string()
+    } else {
+        truncate_chars(trimmed, 180)
+    }
 }
 
 /**

@@ -16,7 +16,32 @@
           :key="mode.key"
           :label="mode.label"
           :value="mode.key"
-        />
+        >
+          <template #default>
+            <div class="mode-option">
+              <img
+                v-if="modeIconPath(mode.key)"
+                class="mode-icon"
+                :src="modeIconPath(mode.key)"
+                :alt="`${mode.label}图标`"
+              />
+              <span v-else class="mode-icon-placeholder" aria-hidden="true" />
+              <span>{{ mode.label }}</span>
+            </div>
+          </template>
+        </el-option>
+        <template #label="{ label }">
+          <div class="mode-option">
+            <img
+              v-if="modeIconPath(appStore.selectedMode)"
+              class="mode-icon"
+              :src="modeIconPath(appStore.selectedMode)"
+              :alt="`${label}图标`"
+            />
+            <span v-else class="mode-icon-placeholder" aria-hidden="true" />
+            <span>{{ label }}</span>
+          </div>
+        </template>
       </el-select>
     </div>
 
@@ -32,13 +57,14 @@
         row-key="id"
         @row-click="handleRowClick"
       >
-        <el-table-column prop="name" label="收藏夹" min-width="178" show-overflow-tooltip />
+        <!-- 收藏夹列按需求缩小约 20%，更新时间只展示日期。 -->
+        <el-table-column prop="name" label="收藏夹" min-width="142" show-overflow-tooltip />
         <el-table-column prop="totalCount" label="总数" width="64" align="center" />
         <el-table-column prop="currentModeCount" label="当前" width="64" align="center" />
         <el-table-column v-if="showMissingColumn" prop="missingCount" label="缺失" width="64" align="center" />
         <el-table-column prop="lastModified" label="更新时间" min-width="142" show-overflow-tooltip>
           <template #default="{ row }">
-            {{ formatDateTime(row.lastModified) }}
+            {{ formatDate(row.lastModified) }}
           </template>
         </el-table-column>
       </el-table>
@@ -54,9 +80,9 @@ import type { CollectionSummary } from "@/entities/Collection";
 import { useRealtimeColumnResize } from "@/composables/useRealtimeColumnResize";
 import { useAppStore } from "@/store/useAppStore";
 import {
-  formatDateTime,
-  modeDefinitions,
+  formatDate,
   modeLabelMap,
+  modeDefinitions,
   type ModeKey,
 } from "@/utils/beatmapColumns";
 
@@ -65,6 +91,18 @@ const tableRef = ref();
 const { bindRealtimeResize } = useRealtimeColumnResize(tableRef, (property) =>
   property === "name" || property === "lastModified" ? 100 : 60
 ); // 收藏夹名与更新时间按文本列限制，其余计数列保持紧凑。
+
+const modeIconMap: Partial<Record<ModeKey, string>> = {
+  osu: "/modes/osu.png",
+  taiko: "/modes/taiko.png",
+  ctb: "/modes/ctb.png",
+  mania: "/modes/mania.png",
+}; // 复用 Python 版本的四个实际模式图标资源，all 和 missing 保留文字显示。
+
+/**
+ * 返回模式选项对应的图标路径。
+ */
+const modeIconPath = (mode: ModeKey): string => modeIconMap[mode] ?? "";
 
 /**
  * 收藏夹表格挂载后启用实时列宽拖拽。
@@ -177,10 +215,27 @@ h3 {
   width: 108px;
 }
 
+.mode-option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.mode-icon,
+.mode-icon-placeholder {
+  display: inline-flex;
+  flex: 0 0 19.2px;
+  width: 19.2px;
+  height: 19.2px; /* 模式图标相对原尺寸放大 20%，占位元素同步保持对齐。 */
+  object-fit: contain;
+}
+
 .table-wrapper {
   flex: 1;
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
 }
 
 :deep(.el-table) {
@@ -198,5 +253,17 @@ h3 {
 
 :deep(.el-table td.el-table__cell) {
   padding: 7px 0;
+}
+
+:deep(.el-table__header-wrapper),
+:deep(.el-table__body-wrapper),
+:deep(.el-table__footer-wrapper),
+:deep(.el-table .el-scrollbar__wrap) {
+  overflow-x: hidden !important;
+}
+
+/* 收藏夹表格只保留纵向滚动，隐藏 Element Plus 单独渲染的横向滚动条。 */
+:deep(.el-table .el-scrollbar__bar.is-horizontal) {
+  display: none;
 }
 </style>

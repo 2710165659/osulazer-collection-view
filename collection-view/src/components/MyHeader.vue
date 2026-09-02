@@ -139,7 +139,7 @@ const exportCurrentBeatmaps = async (): Promise<void> => {
 };
 
 /**
- * 让 Rust 生成四个模式 Excel 并打包为 ZIP。
+ * 让 Rust 生成四个模式汇总表和收藏夹明细表并打包为 ZIP。
  */
 const exportAllBeatmaps = async (): Promise<void> => {
   const filePath = await save({
@@ -155,6 +155,8 @@ const exportAllBeatmaps = async (): Promise<void> => {
       request: {
         outputPath: filePath,
         columns: appStore.columns,
+        sortColumn: appStore.sortColumn,
+        descending: appStore.sortDescending, // 全模式明细文件与当前列表导出沿用同一排序。
       },
     });
     await message(`已导出到：${filePath}`, { title: "导出成功", kind: "info" });

@@ -184,10 +184,10 @@ export const getBeatmapColumnWidth = (key: string): number => {
 };
 
 /**
- * 将 ISO 时间压缩为 Python 版使用的“日期 时间”文本，不额外转换时区。
+ * 将 ISO 时间压缩为收藏夹列表使用的日期文本，不额外转换时区。
  */
-export const formatDateTime = (value: string): string => {
+export const formatDate = (value: string): string => {
   const normalized = value.trim();
-  const match = normalized.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/);
-  return match ? `${match[1]} ${match[2]}` : normalized;
+  const match = normalized.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : normalized;
 };

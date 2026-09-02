@@ -9,7 +9,7 @@
       </el-image>
     </div>
     <div v-else class="placeholder">
-      <span v-if="loading">正在通过 Rust 加载封面...</span>
+      <span v-if="loading">正在加载封面......</span>
       <span v-else-if="errorText">{{ errorText }}</span>
       <span v-else>请选择一个谱面以显示背景图</span>
     </div>

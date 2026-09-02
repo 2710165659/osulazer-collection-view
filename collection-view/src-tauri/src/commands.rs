@@ -159,7 +159,7 @@ pub async fn export_current(
 }
 
 /**
- * 在阻塞线程中生成四模式 Excel ZIP。
+ * 在阻塞线程中生成四模式汇总和收藏夹明细 Excel ZIP。
  */
 #[tauri::command]
 pub async fn export_all_modes(

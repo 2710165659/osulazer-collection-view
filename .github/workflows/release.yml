@@ -82,6 +82,7 @@ jobs:
           - Tauri 2 + Rust + Vue 3 + TypeScript 桌面应用。
           - Rust 直接解析 osu!lazer Realm 数据库，支持筛选、排序、分组分页和缺失谱面统计。
           - 支持列配置、列顺序拖拽、实时列宽调整、封面缓存以及 Excel/ZIP 导出。
+          - 全模式 ZIP 除 `collections_<mode>.xlsx` 汇总表外，还包含每个非空收藏夹的 `<mode>_<收藏夹名称>.xlsx` 独立谱面表，内容与当前列表导出一致。
           - 本次资产是免安装 Windows x64 单二进制便携 ZIP，仅包含 `collection-view.exe`。
 
           ### 使用方式

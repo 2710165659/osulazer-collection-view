@@ -297,6 +297,8 @@ pub struct ExportCurrentRequest {
 pub struct ExportAllRequest {
     pub output_path: String,
     pub columns: Vec<ColumnConfig>,
+    pub sort_column: Option<String>, // 全模式导出的明细表沿用当前谱面列表排序列。
+    pub descending: bool, // 全模式导出的明细表沿用当前谱面列表升降序。
 }
 
 /**
